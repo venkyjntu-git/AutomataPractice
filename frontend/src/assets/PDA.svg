@@ -1,0 +1,26 @@
+<svg width="220" height="150" viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg">
+  <!-- States -->
+  <circle cx="50" cy="75" r="20" stroke="#DB2777" stroke-width="3" fill="#FBCFE8"/>
+  <circle cx="125" cy="40" r="20" stroke="#DB2777" stroke-width="3" fill="#FBCFE8"/>
+  <circle cx="125" cy="110" r="20" stroke="#DB2777" stroke-width="3" fill="#F9A8D4"/>
+  
+  <!-- Accepting state double circle -->
+  <circle cx="125" cy="110" r="16" stroke="#DB2777" stroke-width="2" fill="none"/>
+  
+  <!-- Start arrow -->
+  <path d="M20 75 L30 75" stroke="#DB2777" stroke-width="2" marker-end="url(#arrowhead)"/>
+  
+  <!-- Transitions -->
+  <path d="M70 75 Q100 40 115 40" stroke="#8B5CF6" fill="transparent" marker-end="url(#arrowhead)"/>
+  <text x="80" y="55" font-size="12" fill="#8B5CF6">a, Z→XZ</text>
+  
+  <path d="M70 75 Q100 110 115 110" stroke="#F43F5E" fill="transparent" marker-end="url(#arrowhead)"/>
+  <text x="80" y="100" font-size="12" fill="#F43F5E">b, X→ε</text>
+
+  <!-- Arrowhead definition -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#DB2777"/>
+    </marker>
+  </defs>
+</svg>
