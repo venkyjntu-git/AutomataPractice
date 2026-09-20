@@ -71,13 +71,10 @@ Opens on <http://localhost:5173>. Available routes:
 - `/practice/question/:id` — construction canvas, submission, step-by-step simulation
 - `/automata/viewer/:token` — read-only automaton viewer
 
-The API base URL is **hardcoded** to `http://localhost:8000` in
+The API base URL is `http://localhost:8000` present in
 `frontend/src/api/client.ts`; change it there to point at a different backend.
 The backend's CORS allowlist (`api/main.py`) permits `localhost:5173` and
 `localhost:3000`.
-
-Other scripts: `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm preview`.
-There is no automated test suite in this repository.
 
 
 ## How generation works
