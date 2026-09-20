@@ -19,8 +19,40 @@ from template_handler import load_templates, build_question
 from testcase_generator import generate_test_cases
 from closure_handler import generate_combinations
 from ref_dfa_adapter import build_reference_dfa
+from question_guards import apply_guards
 
 from api.simulator import validate_automaton_state_count
+
+
+# Questions failing a quality guard are discarded and regeneration retried.
+_MAX_GUARD_RETRIES = 5
+
+
+class GuardRejection(Exception):
+    """Raised when a generated question fails one or more quality guards."""
+
+    def __init__(self, failures: list[str], template_id: str = ""):
+        self.failures = list(failures)
+        self.template_id = template_id
+        super().__init__(
+            f"{template_id or 'question'} failed guards: {', '.join(self.failures)}"
+        )
+
+
+def _apply_quality_guards(q: dict, seen_patterns: set | None) -> dict:
+    """
+    Run the four always-on quality guards (distinguishability, non-emptiness,
+    non-triviality, test-case balance) in cheapest-first order.
+
+    ``seen_patterns`` is the caller's session-level registry backing
+    require_distinguishable; when omitted the other three guards still run.
+    Returns q unchanged on success, raises GuardRejection otherwise.
+    """
+    registry = seen_patterns if seen_patterns is not None else set()
+    failures = apply_guards(q, registry)
+    if failures:
+        raise GuardRejection(failures, q.get("template_id", ""))
+    return q
 
 
 def _passes_generation_state_guard(q: dict) -> bool:
@@ -234,9 +266,13 @@ def _run_generation_practice_once(
     closure_only: bool = False,
     question_style: str = "simple",
     difficulty_tier: str | None = None,
+    seen_patterns: set | None = None,
 ) -> dict:
     """
-    Single attempt to build a practice question (may raise ValueError if DFA ref exceeds state limit).
+    Single attempt to build a practice question.
+
+    May raise ValueError if the DFA reference exceeds the state limit, or
+    GuardRejection if the instance fails a quality guard.
     """
     if templates_dir is None:
         templates_dir = os.path.join(_DSL_PATH, "templates")
@@ -264,7 +300,7 @@ def _run_generation_practice_once(
         q = _build_one_simple_question(candidates)
         if not q:
             raise RuntimeError("Could not instantiate a practice question")
-        return _finalize_practice_question_dict(q)
+        return _finalize_practice_question_dict(_apply_quality_guards(q, seen_patterns))
 
     if style == "closure":
         pool = _build_closure_pool(candidates, machine)
@@ -274,7 +310,7 @@ def _run_generation_practice_once(
                 "Try a different difficulty tier or use Simple / Random."
             )
         q = random.choice(pool)
-        return _finalize_practice_question_dict(q)
+        return _finalize_practice_question_dict(_apply_quality_guards(q, seen_patterns))
 
     if style == "random":
         pool = _build_closure_pool(candidates, machine)
@@ -284,12 +320,12 @@ def _run_generation_practice_once(
             q = _build_one_simple_question(candidates)
         if not q:
             raise RuntimeError("Could not instantiate a practice question")
-        return _finalize_practice_question_dict(q)
+        return _finalize_practice_question_dict(_apply_quality_guards(q, seen_patterns))
 
     q = _build_one_simple_question(candidates)
     if not q:
         raise RuntimeError("Could not instantiate a practice question")
-    return _finalize_practice_question_dict(q)
+    return _finalize_practice_question_dict(_apply_quality_guards(q, seen_patterns))
 
 
 def run_generation_practice(
@@ -299,6 +335,7 @@ def run_generation_practice(
     closure_only: bool = False,
     question_style: str = "simple",
     difficulty_tier: str | None = None,
+    seen_patterns: set | None = None,
 ) -> dict:
     """
     Build a single practice question for the given machine (DFA / PDA / TM).
@@ -311,9 +348,17 @@ def run_generation_practice(
     difficulty_tier: easy | medium | hard | any — filters template.difficulty.
     Legacy ``difficulty`` (0–5) applies when tier is missing or any.
 
-    Retries when a DFA reference exceeds AUTOMATA_MAX_STATES (same env as simulation).
+    seen_patterns: the caller's session-level (template_id, pattern) registry,
+    backing the require_distinguishable guard so a session never offers the same
+    language twice. Passing None still runs the other three guards.
+
+    Retries when a DFA reference exceeds AUTOMATA_MAX_STATES (same env as
+    simulation), and up to _MAX_GUARD_RETRIES times when an instance fails a
+    quality guard.
     """
     last_state_err: ValueError | None = None
+    last_guard_err: GuardRejection | None = None
+    guard_attempts = 0
     for _ in range(40):
         try:
             return _run_generation_practice_once(
@@ -323,7 +368,20 @@ def run_generation_practice(
                 closure_only=closure_only,
                 question_style=question_style,
                 difficulty_tier=difficulty_tier,
+                seen_patterns=seen_patterns,
             )
+        except GuardRejection as e:
+            # Degenerate or duplicate instance — discard and regenerate.
+            last_guard_err = e
+            guard_attempts += 1
+            if guard_attempts >= _MAX_GUARD_RETRIES:
+                raise RuntimeError(
+                    "Could not generate a question passing the quality guards after "
+                    f"{_MAX_GUARD_RETRIES} attempts (last failures: "
+                    f"{', '.join(e.failures)}). Try a different machine type or "
+                    "difficulty tier."
+                ) from e
+            continue
         except ValueError as e:
             if "Too many states" in str(e):
                 last_state_err = e
@@ -332,4 +390,4 @@ def run_generation_practice(
     raise RuntimeError(
         "Could not generate a practice question within AUTOMATA_MAX_STATES after several attempts. "
         "Increase AUTOMATA_MAX_STATES or use a simpler question style."
-    ) from last_state_err
+    ) from (last_state_err or last_guard_err)

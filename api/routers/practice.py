@@ -24,6 +24,21 @@ ALLOWED_QUESTION_STYLES = frozenset({"random", "simple", "closure"})
 ALLOWED_DIFFICULTY_TIERS = frozenset({"easy", "medium", "hard", "any"})
 
 
+def _session_seen_patterns(db: Session, practice_key: str) -> set[tuple[str, str]]:
+    """
+    Session-level pattern registry backing the require_distinguishable guard.
+
+    Rebuilt per request from the questions already issued to this practice
+    session, so the guard survives restarts and multiple worker processes.
+    """
+    rows = (
+        db.query(models.Question.template_id, models.Question.pattern)
+        .filter(models.Question.practice_session_key == practice_key)
+        .all()
+    )
+    return {(template_id or "", pattern or "") for template_id, pattern in rows}
+
+
 def _normalize_practice_key(key: str) -> str:
     try:
         return str(uuid.UUID(key.strip()))
@@ -81,6 +96,7 @@ def generate_one(payload: schemas.PracticeGenerateIn, db: Session = Depends(get_
             closure_only=bool(payload.closure_only),
             question_style=style,
             difficulty_tier=tier,
+            seen_patterns=_session_seen_patterns(db, practice_key),
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
